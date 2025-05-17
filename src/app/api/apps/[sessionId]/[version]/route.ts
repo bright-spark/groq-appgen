@@ -79,18 +79,25 @@ export async function POST(
 			);
 		}
 
-		// Add creatorIP to the stored data
-		const data = {
+		// Prepare the data for storage
+		const storageData = {
 			html,
 			signature,
 			...rest,
-			avoidGallery,
 			creatorIP: ip,
 			createdAt: new Date().toISOString(),
 		};
 
-		// Save with explicit sessionId and version instead of the generated key
-		const success = await saveToStorage({ sessionId, version }, JSON.stringify(data));
+		// Add title and description if missing
+		if (!storageData.title) {
+			storageData.title = 'Untitled';
+		}
+		if (!storageData.description) {
+			storageData.description = 'A shared app';
+		}
+
+		// Save with explicit sessionId and version
+		const success = await saveToStorage({ sessionId, version }, JSON.stringify(storageData));
 		if (!success) {
 			throw new Error('Failed to save to storage');
 		}

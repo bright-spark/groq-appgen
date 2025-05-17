@@ -218,11 +218,12 @@ export async function saveToStorage(key: string | { sessionId: string; version: 
     }
 
     // Ensure required fields are present
-    if (!data.signature) {
-      console.warn('Missing required signature in saveToStorage', { 
+    if (!data.signature && !data.html) {
+      console.warn('Missing required fields in saveToStorage', { 
         sessionId,
         version,
         hasHtml: !!data.html,
+        hasSignature: !!data.signature,
         hasTitle: !!data.title
       });
       return false;
@@ -234,10 +235,10 @@ export async function saveToStorage(key: string | { sessionId: string; version: 
       title: data.title || 'Untitled',
       description: data.description || '',
       html: data.html || '',
-      signature: data.signature,
-      created_at: data.createdAt || new Date().toISOString(),
-      creator_ip_hash: data.creatorIpHash || '',
-      upvotes: 0,
+      signature: data.signature || '', // Make signature optional for backward compatibility
+      created_at: data.createdAt || data.created_at || new Date().toISOString(),
+      creator_ip_hash: data.creatorIpHash || data.creator_ip_hash || hashIP(data.creatorIP || ''),
+      upvotes: data.upvotes || 0,
     };
 
     // Check if item exists
