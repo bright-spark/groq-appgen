@@ -97,33 +97,85 @@ export async function POST(
 		}
 
 		// Save with explicit sessionId and version
-		const success = await saveToStorage({ sessionId, version }, JSON.stringify(storageData));
-		if (!success) {
-			throw new Error('Failed to save to storage');
-		}
-
-		if (!avoidGallery) {
-			let success = await addToGallery({ 
-				session_id: sessionId, // Use snake_case for database fields
-				version, 
-				title: rest.title || 'Untitled',
-				description: rest.description || '',
-				signature,
-				created_at: new Date().toISOString(), // Add created_at field
-			}, ip);
-			if(!success) {
-				return NextResponse.json(
-					{ error: "Failed to save app to gallery" },
-					{ status: 500 }
-				);
+		console.log('Attempting to save to storage...');
+		try {
+			const success = await saveToStorage({ sessionId, version }, JSON.stringify(storageData));
+			if (!success) {
+				console.error('Failed to save to storage: saveToStorage returned false');
+				throw new Error('Failed to save to storage');
 			}
+			console.log('Successfully saved to storage');
+
+			try {
+				if (!avoidGallery) {
+					console.log('Attempting to add to gallery...');
+					await addToGallery({ 
+						session_id: sessionId,
+						version, 
+						title: rest.title || 'Untitled',
+						description: rest.description || '',
+						signature,
+						created_at: new Date().toISOString(),
+					}, ip);
+				}
+
+				console.log('Sending success response');
+				return new Response(JSON.stringify({ 
+					success: true,
+					sessionId,
+					version
+				}), {
+					headers: { 'Content-Type': 'application/json' },
+					status: 200
+				});
+
+			} catch (galleryError) {
+				console.error('Error adding to gallery:', {
+					error: galleryError instanceof Error ? galleryError.message : 'Unknown error',
+					stack: galleryError instanceof Error ? galleryError.stack : undefined
+				});
+				// Still return success since the main save was successful
+				return new Response(JSON.stringify({ 
+					success: true,
+					warning: 'Saved but could not add to gallery',
+					sessionId,
+					version
+				}), {
+					headers: { 'Content-Type': 'application/json' },
+					status: 200
+				});
+			}
+
+		} catch (saveError) {
+			console.error('Error in saveToStorage:', {
+				error: saveError instanceof Error ? saveError.message : 'Unknown error',
+				stack: saveError instanceof Error ? saveError.stack : undefined,
+				sessionId,
+				version,
+				storageData: {
+					...storageData,
+					html: storageData.html ? `${storageData.html.substring(0, 100)}...` : 'empty'
+				}
+			});
+			
+			return new Response(JSON.stringify({ 
+				success: false,
+				error: 'Failed to save to storage',
+				details: saveError instanceof Error ? saveError.message : 'Unknown error'
+			}), {
+				headers: { 'Content-Type': 'application/json' },
+				status: 500
+			});
 		}
 
-		return NextResponse.json({ success: true });
 	} catch (error) {
-		console.error("Error saving app:", error);
+		console.error("Error in POST handler:", error);
 		return NextResponse.json(
-			{ error: "Failed to save app" },
+			{ 
+				success: false,
+				error: "Internal server error",
+				details: error instanceof Error ? error.message : 'Unknown error'
+			},
 			{ status: 500 }
 		);
 	}

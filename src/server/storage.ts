@@ -163,11 +163,19 @@ export async function getGalleryKey(timestamp: number, randomHash: string, ip: s
 
 // These functions are stubs for backward compatibility
 export async function saveToStorage(key: string | { sessionId: string; version: string } | Record<string, any>, value: string): Promise<boolean> {
-  console.log('saveToStorage called with:', { 
-    key, 
-    keyType: typeof key,
-    value: value ? (typeof value === 'string' ? value.substring(0, 100) + (value.length > 100 ? '...' : '') : '[non-string value]') : 'undefined'
-  });
+  console.log('saveToStorage called with key:', JSON.stringify(key, null, 2));
+  console.log('saveToStorage value type:', typeof value);
+  console.log('saveToStorage value length:', value?.length || 0);
+  if (value && typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      console.log('Parsed value keys:', Object.keys(parsed));
+      console.log('Has html:', !!parsed.html);
+      console.log('Has signature:', !!parsed.signature);
+    } catch (e) {
+      console.log('Value is not valid JSON');
+    }
+  }
 
   try {
     // Validate key
@@ -217,15 +225,19 @@ export async function saveToStorage(key: string | { sessionId: string; version: 
       return false;
     }
 
+    // Log the data we're about to save
+    console.log('Processing data for storage:', {
+      sessionId,
+      version,
+      hasHtml: !!data.html,
+      hasSignature: !!data.signature,
+      hasTitle: !!data.title,
+      dataKeys: Object.keys(data)
+    });
+
     // Ensure required fields are present
-    if (!data.signature && !data.html) {
-      console.warn('Missing required fields in saveToStorage', { 
-        sessionId,
-        version,
-        hasHtml: !!data.html,
-        hasSignature: !!data.signature,
-        hasTitle: !!data.title
-      });
+    if (!data.html) {
+      console.error('Missing required html field in saveToStorage');
       return false;
     }
 
@@ -241,25 +253,48 @@ export async function saveToStorage(key: string | { sessionId: string; version: 
       upvotes: data.upvotes || 0,
     };
 
-    // Check if item exists
-    const existingItem = await getGalleryItem(sessionId, version);
-    
-    if (existingItem) {
-      // Update existing item
-      const { error } = await supabase
-        .from('gallery_items')
-        .update(galleryItem)
-        .eq('session_id', sessionId)
-        .eq('version', version);
+    try {
+      // Check if item exists
+      console.log('Checking for existing item...');
+      const existingItem = await getGalleryItem(sessionId, version);
       
-      if (error) throw error;
-    } else {
-      // Create new item
-      const { error } = await supabase
-        .from('gallery_items')
-        .insert([galleryItem]);
-      
-      if (error) throw error;
+      if (existingItem) {
+        console.log('Updating existing item...', { sessionId, version });
+        const { data, error } = await supabase
+          .from('gallery_items')
+          .update(galleryItem)
+          .eq('session_id', sessionId)
+          .eq('version', version)
+          .select();
+        
+        console.log('Update result:', { data, error });
+        if (error) {
+          console.error('Error updating item:', error);
+          throw error;
+        }
+      } else {
+        console.log('Creating new item...', { sessionId, version });
+        const { data, error } = await supabase
+          .from('gallery_items')
+          .insert([galleryItem])
+          .select();
+        
+        console.log('Insert result:', { data, error });
+        if (error) {
+          console.error('Error creating item:', error);
+          throw error;
+        }
+      }
+    } catch (dbError) {
+      console.error('Database operation failed:', {
+        error: dbError instanceof Error ? dbError.message : 'Unknown error',
+        stack: dbError instanceof Error ? dbError.stack : undefined,
+        galleryItem: {
+          ...galleryItem,
+          html: galleryItem.html ? `${galleryItem.html.substring(0, 100)}...` : 'empty'
+        }
+      });
+      throw dbError;
     }
 
     // Invalidate gallery cache
@@ -269,7 +304,9 @@ export async function saveToStorage(key: string | { sessionId: string; version: 
   } catch (error) {
     console.error('Error in saveToStorage:', { 
       error: error instanceof Error ? error.message : 'Unknown error',
-      key: typeof key === 'string' ? key : JSON.stringify(key)
+      errorStack: error instanceof Error ? error.stack : undefined,
+      key: typeof key === 'string' ? key : JSON.stringify(key),
+      value: value ? value.substring(0, 200) + '...' : 'undefined'
     });
     return false;
   }
