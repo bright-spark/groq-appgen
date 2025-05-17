@@ -479,58 +479,34 @@ export async function upvoteGalleryItem(
     voterIp: string,
     timestamp: string
 ): Promise<number> {
-    // First get the gallery item
-    const item = await getGalleryItem(sessionId, version);
-    if (!item) throw new Error('Gallery item not found');
-
     try {
-        const voterIpHash = hashIP(voterIp);
-        const galleryItemId = item.id; // Use the actual item ID from the database
-
-        // Check if already upvoted in Supabase
-        const { data: existingVote, error: checkError } = await supabase
-            .from('upvotes')
-            .select('*')
-            .eq('gallery_item_id', galleryItemId)
-            .eq('voter_ip', voterIpHash)
-            .maybeSingle();
-
-        if (checkError) throw checkError;
-        if (existingVote) {
-            return item.upvotes || 0; // Already upvoted
+        // First get the gallery item
+        const item = await getGalleryItem(sessionId, version);
+        if (!item) {
+            console.error('Gallery item not found for upvote:', { sessionId, version });
+            throw new Error('Gallery item not found');
         }
 
-        // Add the upvote
-        const { error: upvoteError } = await supabase
-            .from('upvotes')
-            .insert({
-                gallery_item_id: galleryItemId,
-                voter_ip: voterIpHash,
-                voted_at: new Date(timestamp).toISOString()
-            });
+        const voterIpHash = hashIP(voterIp);
+        const galleryItemId = item.id;
 
-        if (upvoteError) throw upvoteError;
+        // Start a transaction to ensure data consistency
+        const { data, error: txError } = await supabase.rpc('handle_upvote', {
+            p_gallery_item_id: galleryItemId,
+            p_voter_ip: voterIpHash,
+            p_voted_at: new Date(timestamp).toISOString()
+        });
 
-        // Get the new upvote count
-        const { count: upvoteCount, error: countError } = await supabase
-            .from('upvotes')
-            .select('*', { count: 'exact', head: true})
-            .eq('gallery_item_id', galleryItemId);
-
-        if (countError) throw countError;
-
-        // Update the gallery item with the new upvote count
-        const { error: updateError } = await supabase
-            .from('gallery_items')
-            .update({ upvotes: upvoteCount })
-            .eq('id', galleryItemId);
-
-        if (updateError) throw updateError;
+        if (txError || !data) {
+            console.error('Error in upvote transaction:', txError);
+            throw new Error(txError?.message || 'Failed to process upvote');
+        }
 
         // Clear the gallery cache
         galleryCache = null;
 
-        return upvoteCount || 0;
+        // Return the new upvote count
+        return data.upvote_count || 0;
     } catch (error) {
         console.error('Error in upvoteGalleryItem:', error);
         throw error;
