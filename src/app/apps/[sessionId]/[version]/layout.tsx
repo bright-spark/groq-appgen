@@ -18,26 +18,47 @@ export async function generateMetadata({
 
 	try {
 		const headersList = headers();
-		const key = getStorageKey(sessionId, version);
-		const { value:res } = await getFromStorageWithRegex(key);
+		const ip = headersList.get('x-forwarded-for') || 'unknown';
 		
-		if (!res) {
-			return {};
-		}
-
-		const data = JSON.parse(res);
-		if (data) {
+		// Get the storage key
+		const key = await getStorageKey(sessionId, version, ip);
+		
+		// Try to get the exact match first
+		const { value } = await getFromStorageWithRegex(key);
+		
+		if (!value) {
+			// If not found, try to find any version of this session
+			const sessionKey = await getStorageKey(sessionId, '*', ip);
+			const { value: sessionValue } = await getFromStorageWithRegex(sessionKey);
+			
+			if (!sessionValue) {
+				return {};
+			}
+			
+			const data = JSON.parse(sessionValue);
 			return {
-				title: data.title,
-				description: data.description,
+				title: data.title || 'App',
+				description: data.description || 'A shared app',
 				openGraph: {
-					title: data.title,
-					description: data.description,
+					title: data.title || 'Shared App',
+					description: data.description || 'Check out this shared app',
 					images: `https://image.thum.io/get/${ROOT_URL}/api/apps/${sessionId}/${version}/raw`,
 					type: "website",
 				},
 			};
 		}
+
+		const data = JSON.parse(value);
+		return {
+			title: data.title || 'App',
+			description: data.description || 'A shared app',
+			openGraph: {
+				title: data.title || 'Shared App',
+				description: data.description || 'Check out this shared app',
+				images: `https://image.thum.io/get/${ROOT_URL}/api/apps/${sessionId}/${version}/raw`,
+				type: "website",
+			},
+		};
 	} catch (error) {
 		console.error("Error generating metadata:", error);
 	}

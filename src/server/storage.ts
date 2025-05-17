@@ -311,28 +311,53 @@ export async function getFromStorage(key: string) {
     return null;
   }
 }
-export async function getFromStorageWithRegex(key: string) {
+export async function getFromStorageWithRegex(key: string | { sessionId: string; version?: string } | Record<string, any>) {
     try {
-        // Extract sessionId and version from the key (format: "app:sessionId:version")
-        const parts = key.split(':');
-        if (parts.length < 3) {
-            console.error('Invalid key format:', key);
+        let sessionId: string;
+        let version: string | undefined;
+
+        // Handle different key formats
+        if (typeof key === 'string') {
+            // Handle string key format (app:sessionId:version)
+            const parts = key.split(':');
+            if (parts.length < 3) {
+                console.error('Invalid key format (string):', key);
+                return { value: null, key };
+            }
+            sessionId = parts[1];
+            version = parts[2];
+        } else if (key && typeof key === 'object' && 'sessionId' in key) {
+            // Handle object format with sessionId
+            sessionId = key.sessionId;
+            version = key.version;
+        } else {
+            console.error('Invalid key format (object):', key);
+            return { value: null, key };
+        }
+
+        if (!sessionId) {
+            console.error('Missing sessionId in key:', key);
             return { value: null, key };
         }
         
-        const sessionId = parts[1];
-        const version = parts[2];
-        
-        // Query the gallery_items table
-        const { data, error } = await supabase
+        // Build the query
+        let query = supabase
             .from('gallery_items')
             .select('*')
-            .eq('session_id', sessionId)
-            .eq('version', version)
-            .single();
+            .eq('session_id', sessionId);
+
+        // Add version filter if provided and not a wildcard
+        if (version && version !== '*') {
+            query = query.eq('version', version);
+        }
+
+        // Execute the query
+        const { data, error } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
             
         if (error || !data) {
-            console.error('Error fetching app from Supabase:', error);
+            if (error) {
+                console.error('Error fetching from Supabase:', error);
+            }
             return { value: null, key };
         }
         

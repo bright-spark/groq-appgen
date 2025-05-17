@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useStudio } from "@/providers/studio-provider";
 import { DrawingCanvas } from "@/components/DrawingCanvas";
-import { useState } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { APP_EXAMPLES } from "@/data/app-examples";
 import { Info, Pencil } from "lucide-react";
 import Link from "next/link";
@@ -49,10 +49,7 @@ export default function PromptView() {
 		setShowDrawing(false);
 	};
 
-	const handleSuggestionClick = async (suggestion: string) => {
-    console.log('=== Suggestion Click Handler Start ===');
-    console.log('Clicked suggestion:', suggestion);
-    
+	const handleSuggestionClick = useCallback(async (suggestion: string) => {
     try {
         // Find the example
         const example = APP_EXAMPLES.find((ex) => ex.label === suggestion);
@@ -62,37 +59,26 @@ export default function PromptView() {
         }
         
         const prompt = example.prompt;
-        console.log('Found prompt:', prompt);
-        
-        // Log current state before updates
-        console.log('Current state before updates - query:', query, 'studioMode:', studioMode);
         
         // Set the query
-        console.log('Setting query...');
         setQuery(prompt);
         
         // Reset streaming state
-        console.log('Resetting streaming state...');
         resetStreamingState();
         
-        // Set studio mode
-        console.log('Setting studio mode to true...');
+        // Set studio mode and trigger generation
         setStudioMode(true);
         
-        // Wait for state updates to complete
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // Small delay to ensure state updates before triggering generation
+        setTimeout(() => {
+            setTriggerGeneration(true);
+        }, 50);
         
-        console.log('State after updates - query:', query, 'studioMode:', studioMode);
-        
-        // Trigger generation
-        console.log('Triggering generation...');
-        setTriggerGeneration(true);
-        
-        console.log('=== Suggestion Click Handler Complete ===');
     } catch (error) {
         console.error('Error in handleSuggestionClick:', error);
+        toast.error('Failed to process suggestion');
     }
-};
+}, [setQuery, resetStreamingState, setStudioMode, setTriggerGeneration]);
 
 	const handleTranscription = (transcription: string) => {
 		setQuery(transcription);
@@ -186,27 +172,22 @@ export default function PromptView() {
 				/>
 			)}
 			<div className="flex flex-wrap justify-center gap-3 items-center w-[90%] md:w-[60%] lg:w-[50%] pb-4 px-2">
-				{APP_SUGGESTIONS.map((suggestion) => {
-                console.log('Rendering suggestion button:', suggestion);
-                return (
-                    <Button
-                        key={suggestion}
-                        disabled={MAINTENANCE_GENERATION}
-                        variant="outline"
-                        className="rounded-full text-xs whitespace-nowrap shrink-0"
-                        onClick={(e) => {
-                            console.log('Button click event:', e);
-                            e.preventDefault();
-                            e.stopPropagation();
-                            console.log('Calling handleSuggestionClick with:', suggestion);
-                            handleSuggestionClick(suggestion);
-                        }}
-                        style={{ pointerEvents: MAINTENANCE_GENERATION ? 'none' : 'auto' }}
-                    >
-                        {suggestion}
-                    </Button>
-                );
-            })}
+				{APP_SUGGESTIONS.map((suggestion) => (
+					<Button
+						key={suggestion}
+						disabled={MAINTENANCE_GENERATION}
+						variant="outline"
+						className="rounded-full text-xs whitespace-nowrap shrink-0"
+						onClick={(e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							handleSuggestionClick(suggestion);
+						}}
+						style={{ pointerEvents: MAINTENANCE_GENERATION ? 'none' : 'auto' }}
+					>
+						{suggestion}
+					</Button>
+				))}
 			</div>
 			<div className="w-full px-4 mb-[100px]">
 				<Link href="/gallery">

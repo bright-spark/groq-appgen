@@ -27,28 +27,28 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({
-	children,
+  children,
 }: {
-	children: React.ReactNode;
+  children: React.ReactNode;
 }) {
-	return (
-		<html lang="en">
-			<body className={inter.className}>
-				<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-					<LayoutClientContent>
-						{MAINTENANCE_MODE ? (
-							<div className="text-center text-gray-500 py-8">
-								{"We're currently undergoing maintenance. We'll be back soon!"}
-							</div>
-						) : (
-							<>
-								{children}
-								<Toaster position="bottom-right" />
-							</>
-						)}
-					</LayoutClientContent>
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className}>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <LayoutClientContent>
+            {MAINTENANCE_MODE ? (
+              <div className="text-center text-gray-500 py-8">
+                {"We're currently undergoing maintenance. We'll be back soon!"}
+              </div>
+            ) : (
+              <>
+                {children}
+                <Toaster position="bottom-right" />
+              </>
+            )}
+          </LayoutClientContent>
 
-					<footer className="fixed bottom-0 left-0 w-fit text-left text-sm py-1 px-4 bg-[hsl(var(--background))] border-t border-l border-r border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] z-10 rounded-tr-sm">
+          <footer className="fixed bottom-0 left-0 w-fit text-left text-sm py-1 px-4 bg-[hsl(var(--background))] border-t border-l border-r border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] z-10 rounded-tr-sm">
 						<a href="https://groq.com/terms-of-use/" target="_blank" rel="noopener noreferrer" className="underline hover:text-[hsl(var(--foreground))] mx-2">
 							Terms of Use
 						</a>
