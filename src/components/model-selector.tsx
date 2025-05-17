@@ -16,27 +16,34 @@ const ModelSelector = ({
   initialModel 
 }: ModelSelectorProps) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [isClient, setIsClient] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("");
+  const [isMounted, setIsMounted] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(() => {
+    // Use initialModel as the default on both server and client for initial render
+    if (initialModel && options.includes(initialModel)) {
+      return initialModel;
+    }
+    return options[0];
+  });
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition>('right');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Set initial model on client-side only
+  // Set up client-side state after mount
   useEffect(() => {
-    setIsClient(true);
+    setIsMounted(true);
     
+    // Only run this on client side after initial render
     const storedModel = localStorage.getItem("selectedModel");
-    let modelToSet = options[0];
+    let modelToSet = selectedModel;
     
-    if (initialModel && options.includes(initialModel)) {
-      modelToSet = initialModel;
-    } else if (storedModel && options.includes(storedModel)) {
+    if (storedModel && options.includes(storedModel)) {
       modelToSet = storedModel;
     }
     
-    setSelectedModel(modelToSet);
-    if (onChange) onChange(modelToSet);
-  }, [initialModel, options, onChange]);
+    if (modelToSet !== selectedModel) {
+      setSelectedModel(modelToSet);
+      if (onChange) onChange(modelToSet);
+    }
+  }, [initialModel, options, onChange, selectedModel]);
 
   // Update selectedModel when initialModel changes externally
   useEffect(() => {
@@ -87,11 +94,11 @@ const ModelSelector = ({
     };
   }, []);
 
-  // Don't render anything during SSR to prevent hydration mismatch
-  if (!isClient) {
+  // Show a simple loading state during SSR to prevent hydration mismatch
+  if (!isMounted) {
     return (
       <div className="flex items-center justify-end gap-2 rounded-lg p-2 w-full md:w-auto">
-        <span className="text-black dark:text-white text-right">{initialModel || options[0]}</span>
+        <span className="text-black dark:text-white text-right">{selectedModel || options[0]}</span>
         <ChevronDown className="w-5 h-5 text-black dark:text-white" />
       </div>
     );
