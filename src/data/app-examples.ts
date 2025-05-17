@@ -22,7 +22,7 @@ export const APP_EXAMPLES: AppExample[] = [
   },
   {
     label: "Meme Maker",
-    prompt: "Develop a meme maker with a light minimal theme. Use light text for the input fields and other text. The meme maker should use https://picsum.photos/ for images. Load a random image when the meme maker opens. The meme maker should allow users to input text for the top and bottom of the meme. The meme maker should allow users to select meme orientation (e.g. horizontal, vertical, square). The meme maker should have a refresh button to load a new image. The meme maker should also allow users to share the meme. The meme maker should also allow users to save the meme.",
+    prompt: "Develop a meme maker with a light minimal theme. Make use of the canvas element. The meme maker should use https://picsum.photos/ for images. Load a random image when the meme maker opens. The meme maker should allow users to type directly on the image to add the top and bottom text of the meme. The meme maker should allow users to select meme orientation (e.g. horizontal, vertical, square). The meme maker should have a refresh button to load a new image. The meme maker should also allow users to share the meme. The meme maker should also allow users to save the meme.",
   },
   {
     label: "Snake Game",
