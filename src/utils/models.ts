@@ -89,7 +89,7 @@ export function getFallbackModel(): string {
 	return "llama-3.3-70b-versatile";
 }
 
-export const PRIMARY_MODEL = "llama-3.3-70b-specdec";
+export const PRIMARY_MODEL = "llama-3.3-70b-versatile";
 export const VANILLA_MODEL = "llama-3.3-70b-versatile";
 
 export const PRIMARY_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";

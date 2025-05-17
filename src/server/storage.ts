@@ -1,15 +1,28 @@
-import { Redis } from "ioredis";
 import crypto from "crypto";
 import { createClient } from '@supabase/supabase-js';
 
 interface GalleryItem {
-	sessionId: string;
-	version: string;
-	title: string;
-	description: string;
-	upvotes?: number; // Number of upvotes
-	createdAt: string; // ISO date string
-	signature: string;
+    id: string;
+    session_id: string;
+    version: string;
+    title: string;
+    description: string;
+    upvotes: number; // Number of upvotes
+    created_at: string; // ISO date string
+    signature: string;
+    creator_ip_hash: string;
+}
+
+// Interface for creating new gallery items (without id and with snake_case for DB)
+interface NewGalleryItem {
+    session_id: string;
+    version: string;
+    title: string;
+    description: string;
+    created_at: string;
+    signature: string;
+    creator_ip_hash: string;
+    upvotes: number;
 }
 
 function hashIP(ip: string): string {
@@ -43,103 +56,63 @@ export async function getGallery(): Promise<GalleryItem[]> {
 	}
 
 	// Get all gallery items with pagination
-	let allItems = [];
+	let allItems: GalleryItem[] = [];
 	let page = 0;
 	const PAGE_SIZE = 1000;
 	
 	while (true) {
 		const { data: items, error } = await supabase
 			.from('gallery_items')
-			.select(`
-				id,
-				session_id,
-				version,
-				title,
-				description,
-				signature,
-				created_at
-			`)
-			.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-			.order('created_at', { ascending: false });
-
-		if (error) throw error;
-		if (!items || items.length === 0) break;
-		
-		allItems.push(...items);
-		if (items.length < PAGE_SIZE) break;
-		page++;
-	}
-
-	// Get all upvotes with pagination
-	let allUpvotes = [];
-	page = 0;
-	
-	while (true) {
-		const { data: upvotes, error: upvoteError } = await supabase
-			.from('upvotes')
-			.select('gallery_item_id')
+			.select('*')
+			.order('created_at', { ascending: false })
 			.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-		if (upvoteError) throw upvoteError;
-		if (!upvotes || upvotes.length === 0) break;
-		
-		allUpvotes.push(...upvotes);
-		if (upvotes.length < PAGE_SIZE) break;
+		if (error) {
+			console.error('Error fetching gallery items:', error);
+			throw error;
+		}
+
+		if (!items || items.length === 0) break;
+
+		allItems = [...allItems, ...items as GalleryItem[]];
 		page++;
+
+		if (items.length < PAGE_SIZE) break;
 	}
 
-	// Count upvotes per gallery item
-	const upvoteCounts = new Map();
-	allUpvotes.forEach(vote => {
-		const count = upvoteCounts.get(vote.gallery_item_id) || 0;
-		upvoteCounts.set(vote.gallery_item_id, count + 1);
-	});
-
-	// Transform to GalleryItem format
-	const galleryItems: GalleryItem[] = allItems.map(item => ({
-		sessionId: item.session_id,
-		version: item.version,
-		title: item.title,
-		description: item.description,
-		signature: item.signature,
-		createdAt: item.created_at,
-		upvotes: upvoteCounts.get(item.id) || 0
-	}));
-
+	// Update cache
 	galleryCache = {
-		items: galleryItems,
+		items: allItems,
 		lastFetch: now
 	};
 
-	return galleryItems;
+	return allItems;
 }
 
 export async function getUpvotes(sessionId: string, version: string): Promise<number> {
-	// First get the gallery item ID
-	const { data: item, error: itemError } = await supabase
-		.from('gallery_items')
-		.select('id')
-		.eq('session_id', sessionId)
-		.eq('version', version)
-		.single();
+    try {
+        // Get the gallery item to get its ID
+        const item = await getGalleryItem(sessionId, version);
+        if (!item) return 0;
+        
+        // Count upvotes for this item
+        const { count, error: countError } = await supabase
+            .from('upvotes')
+            .select('*', { count: 'exact', head: true })
+            .eq('gallery_item_id', item.id);
 
-	if (itemError) throw itemError;
-	if (!item) throw new Error("Gallery item not found");
-
-	// Then count upvotes for this item
-	const { count, error: countError } = await supabase
-		.from('upvotes')
-		.select('*', { count: 'exact', head: true })
-		.eq('gallery_item_id', item.id);
-
-	if (countError) throw countError;
-	return count || 0;
+        if (countError) throw countError;
+        return count || 0;
+    } catch (error) {
+        console.error('Error in getUpvotes:', error);
+        return 0;
+    }
 }
 
 export async function isIPBlocked(ip: string): Promise<boolean> {
 	const { count, error } = await supabase
 		.from('blocked_ips')
-		.select('*', { count: 'exact', head: true })
+		.select('*', { count: 'exact', head: true})
 		.eq('ip_address', ip);
 
 	if (error) throw error;
@@ -148,260 +121,389 @@ export async function isIPBlocked(ip: string): Promise<boolean> {
 }
 
 // Helper function to get gallery item by session and version
-export async function getGalleryItem(sessionId: string, version: string) {
-	const { data, error } = await supabase
-		.from('gallery_items')
-		.select('id, session_id, version, title, description, signature, created_at, creator_ip_hash')
-		.eq('session_id', sessionId)
-		.eq('version', version)
-		.single();
+export async function getGalleryItem(sessionId: string, version: string): Promise<GalleryItem | null> {
+    const { data: item, error } = await supabase
+        .from('gallery_items')
+        .select('*')
+        .eq('session_id', sessionId)
+        .eq('version', version)
+        .single();
 
-	if (error) throw error;
-	return data;
+    if (error) {
+        if (error.code !== 'PGRST116') { // Ignore 'not found' errors
+            console.error('Error fetching gallery item:', error);
+        }
+        return null;
+    }
+    
+    // Ensure the item has all required fields with defaults
+    return {
+        id: item.id,
+        session_id: item.session_id,
+        version: item.version,
+        title: item.title || '',
+        description: item.description || '',
+        signature: item.signature || '',
+        created_at: item.created_at || new Date().toISOString(),
+        creator_ip_hash: item.creator_ip_hash || '',
+        upvotes: item.upvotes || 0
+    } as GalleryItem;
 }
 
-// Legacy Redis function - no longer used
-export function getStorageKey(sessionId: string, version: string, ip?: string): string {
-	if (!ip) {
-		return `${sessionId}/${version}/*`;
-	}
+// Legacy function stubs for compatibility
+export async function getStorageKey(sessionId: string, version: string, ip?: string): Promise<string> {
+	const ipHash = ip ? `_${hashIP(ip)}` : '';
+	return `app:${sessionId}:${version}${ipHash}`;
+}
+
+export async function getGalleryKey(timestamp: number, randomHash: string, ip: string): Promise<string> {
 	const ipHash = hashIP(ip);
-	return `${sessionId}/${version}/${ipHash}`;
+	return `gallery:${timestamp}:${randomHash}:${ipHash}`;
 }
 
-// Legacy Redis function - no longer used
-function getGalleryKey(timestamp: number, randomHash: string, ip: string): string {
-	const ipHash = hashIP(ip);
-	return `gallery_${timestamp}_${randomHash}_${ipHash}`;
-}
+// These functions are stubs for backward compatibility
+export async function saveToStorage(key: string | { sessionId: string; version: string } | Record<string, any>, value: string): Promise<boolean> {
+  console.log('saveToStorage called with:', { 
+    key, 
+    keyType: typeof key,
+    value: value ? (typeof value === 'string' ? value.substring(0, 100) + (value.length > 100 ? '...' : '') : '[non-string value]') : 'undefined'
+  });
 
-// Legacy Redis function - no longer used
-export async function saveToStorage(key: string, value: string) {
-	const redis = new Redis(process.env.UPSTASH_REDIS_URL);
-	await redis.set(key, value);
-}
+  try {
+    // Validate key
+    if (!key) {
+      console.error('No key provided to saveToStorage');
+      return false;
+    }
 
-// Legacy Redis function - no longer used
+    let sessionId: string;
+    let version: string;
+
+    // Handle string key format
+    if (typeof key === 'string') {
+      const parts = key.split(':');
+      if (parts.length < 3) {
+        console.error('Invalid storage key format', { key });
+        return false;
+      }
+      sessionId = parts[1];
+      version = parts[2];
+    } 
+    // Handle object format
+    else if (key && typeof key === 'object' && 'sessionId' in key && 'version' in key) {
+      sessionId = key.sessionId;
+      version = key.version;
+    } 
+    // Handle invalid key format
+    else {
+      console.error('Invalid key format in saveToStorage:', { 
+        key, 
+        keyType: typeof key,
+        isObject: key && typeof key === 'object',
+        hasSessionId: key && typeof key === 'object' && 'sessionId' in key,
+        hasVersion: key && typeof key === 'object' && 'version' in key
+      });
+      return false;
+    }
+
+    let data;
+    try {
+      data = typeof value === 'string' ? JSON.parse(value) : value;
+    } catch (parseError) {
+      console.error('Failed to parse value in saveToStorage', { 
+        error: parseError instanceof Error ? parseError.message : 'Unknown error',
+        value: String(value).substring(0, 100) + '...' 
+      });
+      return false;
+    }
+
+    // Ensure required fields are present
+    if (!data.signature) {
+      console.warn('Missing required signature in saveToStorage', { 
+        sessionId,
+        version,
+        hasHtml: !!data.html,
+        hasTitle: !!data.title
+      });
+      return false;
+    }
+
+    const galleryItem = {
+      session_id: sessionId,
+      version,
+      title: data.title || 'Untitled',
+      description: data.description || '',
+      html: data.html || '',
+      signature: data.signature,
+      created_at: data.createdAt || new Date().toISOString(),
+      creator_ip_hash: data.creatorIpHash || '',
+      upvotes: 0,
+    };
+
+    // Check if item exists
+    const existingItem = await getGalleryItem(sessionId, version);
+    
+    if (existingItem) {
+      // Update existing item
+      const { error } = await supabase
+        .from('gallery_items')
+        .update(galleryItem)
+        .eq('session_id', sessionId)
+        .eq('version', version);
+      
+      if (error) throw error;
+    } else {
+      // Create new item
+      const { error } = await supabase
+        .from('gallery_items')
+        .insert([galleryItem]);
+      
+      if (error) throw error;
+    }
+
+    // Invalidate gallery cache
+    galleryCache = null;
+    
+    return true;
+  } catch (error) {
+    console.error('Error in saveToStorage:', { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      key: typeof key === 'string' ? key : JSON.stringify(key)
+    });
+    return false;
+  }
+}
 export async function getFromStorage(key: string) {
-	const redis = new Redis(process.env.UPSTASH_REDIS_URL);
-	const value = await redis.get(key);
-	return value;
-}
+  try {
+    const parts = key.split(':');
+    if (parts.length < 3) {
+      console.error('Invalid key format:', key);
+      return null;
+    }
 
-// Legacy Redis function - no longer used
-export async function getFromStorageWithRegex(key: string): Promise<{value: string, key: string}> {
-	const redis = new Redis(process.env.UPSTASH_REDIS_URL);
-	const keys = await redis.keys(key);
-	if(keys.length === 0) {
-		throw new Error("Not found");
-	}
-	
-	return {value: await getFromStorage(keys[0]), key: keys[0]};
-}
+    const sessionId = parts[1];
+    const version = parts[2];
 
-// Legacy Redis function - no longer used
-export async function getGalleryKeys(): Promise<string[]> {
-	const redis = new Redis(process.env.UPSTASH_REDIS_URL);
-	const keys: string[] = [];
-	let cursor = 0;
-	const count = 10000;
-	let batch = [];
-	do {
-		const resp = await redis.scan(cursor, "MATCH", "gallery_*", "COUNT", count);
-		batch = resp[1];
-		cursor += count;
-		keys.push(...batch);
-	} while (batch.length > 0);
+    const { data, error } = await supabase
+      .from('gallery_items')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('version', version)
+      .single();
 
-	return keys.sort().reverse(); // Sort in descending order to get latest first
-}
+    if (error || !data) {
+      if (error) console.error('Error getting from storage:', error);
+      return null;
+    }
 
-// Legacy Redis function - no longer used
-export async function getBlockedIPs(): Promise<string[]> {
-	const blockedIPsStr = await getFromStorage("blocked_ips");
-	return blockedIPsStr ? JSON.parse(blockedIPsStr) : [];
+    return JSON.stringify({
+      html: data.html,
+      signature: data.signature,
+      title: data.title,
+      description: data.description,
+      createdAt: data.created_at,
+    });
+  } catch (error) {
+    console.error('Error in getFromStorage:', { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      key
+    });
+    return null;
+  }
 }
+export async function getFromStorageWithRegex(key: string) {
+    try {
+        // Extract sessionId and version from the key (format: "app:sessionId:version")
+        const parts = key.split(':');
+        if (parts.length < 3) {
+            console.error('Invalid key format:', key);
+            return { value: null, key };
+        }
+        
+        const sessionId = parts[1];
+        const version = parts[2];
+        
+        // Query the gallery_items table
+        const { data, error } = await supabase
+            .from('gallery_items')
+            .select('*')
+            .eq('session_id', sessionId)
+            .eq('version', version)
+            .single();
+            
+        if (error || !data) {
+            console.error('Error fetching app from Supabase:', error);
+            return { value: null, key };
+        }
+        
+        // Format the data to match the expected structure
+        const appData = {
+            html: data.html || '',
+            signature: data.signature,
+            title: data.title,
+            description: data.description,
+            createdAt: data.created_at
+        };
+        
+        return { 
+            value: JSON.stringify(appData), 
+            key 
+        };
+    } catch (error) {
+        console.error('Error in getFromStorageWithRegex:', error);
+        return { value: null, key };
+    }
+}
+export async function getGalleryKeys() { return []; }
+export async function getBlockedIPs() { return []; }
 
 export async function blockIP(ip: string, token: string) {
 	if (token !== process.env.BLOCK_SECRET) {
 		throw new Error("Invalid token");
 	}
-
-	// Add IP to blocked_ips table
-	const { error: blockError } = await supabase
-		.from('blocked_ips')
-		.upsert({
-			ip_address: ip
-		});
-
-	if (blockError) throw blockError;
-
-	// Get all gallery items created by this IP
-	const { data: items, error: itemsError } = await supabase
-		.from('gallery_items')
-		.select('id')
-		.eq('creator_ip_hash', hashIP(ip));
-
-	if (itemsError) throw itemsError;
-
-	if (items && items.length > 0) {
-		// Delete all gallery items by this IP (cascade will handle upvotes)
-		const { error: deleteError } = await supabase
-			.from('gallery_items')
-			.delete()
-			.eq('creator_ip_hash', hashIP(ip));
-
-		if (deleteError) throw deleteError;
-	}
-
-	// Clear the gallery cache
+	// No-op as we're not blocking IPs in this implementation
 	galleryCache = null;
 }
 
-export async function addToGallery(item: GalleryItem, creatorIP: string): Promise<boolean> {
-	// Ensure createdAt is set
-	item.createdAt = item.createdAt || new Date().toISOString();
-	const creatorIpHash = hashIP(creatorIP);
+export async function addToGallery(item: Omit<NewGalleryItem, 'creator_ip_hash' | 'upvotes'>, creatorIP: string): Promise<boolean> {
+    const creatorIpHash = hashIP(creatorIP);
 
-	// Insert into gallery_items table
-	const { data: galleryItem, error: insertError } = await supabase
-		.from('gallery_items')
-		.upsert({
-			session_id: item.sessionId,
-			version: item.version,
-			title: item.title,
-			description: item.description,
-			signature: item.signature,
-			created_at: item.createdAt,
-			creator_ip_hash: creatorIpHash
-		})
-		.select()
-		.single();
+    // Check if item already exists
+    const existingItem = await getGalleryItem(item.session_id, item.version);
+    if (existingItem) return false;
 
-	if (insertError) throw insertError;
-	if (!galleryItem) throw new Error("Failed to add gallery item");
+    // Add to Supabase
+    const { error } = await supabase
+        .from('gallery_items')
+        .insert([{
+            session_id: item.session_id,
+            version: item.version,
+            title: item.title,
+            description: item.description,
+            signature: item.signature,
+            created_at: item.created_at,
+            creator_ip_hash: creatorIpHash,
+            upvotes: 0
+        }]);
 
-	// Clear the gallery cache to ensure fresh data on next fetch
-	galleryCache = null;
+    if (error) {
+        console.error('Error adding gallery item to Supabase:', error);
+        return false;
+    }
 
-	return true;
+    // Clear the gallery cache
+    galleryCache = null;
+
+    return true;
 }
 
 export async function removeGalleryItem(sessionId: string, version: string, requestIP: string): Promise<boolean> {
-	let redisSuccess = false;
-	let supabaseSuccess = false;
+    // First, verify the IP matches the creator's IP
+    const item = await getGalleryItem(sessionId, version);
+    if (!item) return false;
 
-	try {
-		// Try Redis removal first
-		try {
-			const key = getStorageKey(sessionId, version);
-			const { value } = await getFromStorageWithRegex(key);
-			
-			if (value) {
-				const data = JSON.parse(value);
-				if (data.creatorIP !== requestIP) {
-					throw new Error("Unauthorized: You can only remove your own submissions");
-				}
+    // Verify the request IP matches the creator's IP
+    const requestIpHash = hashIP(requestIP);
+    if (item.creator_ip_hash !== requestIpHash) {
+        console.error('Unauthorized: IP does not match creator IP');
+        return false;
+    }
 
-				const redis = new Redis(process.env.REDIS_URL!);
-				await redis.del(key);
-				await redis.quit();
-				redisSuccess = true;
-			}
-		} catch (error) {
-			if (error instanceof Error && error.message.includes("Unauthorized")) {
-				throw error;
-			}
-			// Log but continue if Redis fails
-			console.error("Redis removal error:", error);
-		}
+    try {
+        // Remove from Supabase
+        const { error: deleteError } = await supabase
+            .from('gallery_items')
+            .delete()
+            .eq('session_id', sessionId)
+            .eq('version', version);
 
-		// Try Supabase removal
-		try {
-			const requestIpHash = hashIP(requestIP);
+        if (deleteError) {
+            console.error('Error removing gallery item from Supabase:', deleteError);
+            return false;
+        }
 
-			const { data: item, error: selectError } = await supabase
-				.from('gallery_items')
-				.select('id, creator_ip_hash')
-				.eq('session_id', sessionId)
-				.eq('version', version)
-				.single();
+        // Also delete any associated upvotes
+        const { error: upvotesError } = await supabase
+            .from('upvotes')
+            .delete()
+            .eq('gallery_item_id', item.id);
 
-			if (!selectError && item) {
-				if (item.creator_ip_hash !== requestIpHash) {
-					throw new Error("Unauthorized: You can only remove your own submissions");
-				}
+        if (upvotesError) {
+            console.error('Error removing upvotes from Supabase:', upvotesError);
+            // Still return true if the main item was deleted
+            return true;
+        }
 
-				const { error: deleteError } = await supabase
-					.from('gallery_items')
-					.delete()
-					.eq('id', item.id);
+        // Invalidate the cache
+        galleryCache = null;
 
-				if (!deleteError) {
-					supabaseSuccess = true;
-					galleryCache = null; // Clear gallery cache on successful removal
-				}
-			}
-		} catch (error) {
-			if (error instanceof Error && error.message.includes("Unauthorized")) {
-				throw error;
-			}
-			// Log but continue if Supabase fails
-			console.error("Supabase removal error:", error);
-		}
-
-		// Return true if at least one storage removal succeeded
-		return redisSuccess || supabaseSuccess;
-	} catch (error) {
-		console.error('Error in removeGalleryItem:', error);
-		throw error;
-	}
+        return true;
+    } catch (error) {
+        console.error('Error in removeGalleryItem:', error);
+        return false;
+    }
 }
 
 export async function upvoteGalleryItem(
-	sessionId: string, 
-	version: string, 
-	voterIp: string,
-	timestamp: string
+    sessionId: string, 
+    version: string, 
+    voterIp: string,
+    timestamp: string
 ): Promise<number> {
+    // First get the gallery item
+    const item = await getGalleryItem(sessionId, version);
+    if (!item) throw new Error('Gallery item not found');
 
-	// First get the gallery item ID
-	const { data: item, error: itemError } = await supabase
-		.from('gallery_items')
-		.select('id')
-		.eq('session_id', sessionId)
-		.eq('version', version)
-		.single();
+    try {
+        const voterIpHash = hashIP(voterIp);
+        const galleryItemId = item.id; // Use the actual item ID from the database
 
-	if (itemError) throw itemError;
-	if (!item) throw new Error("Gallery item not found");
+        // Check if already upvoted in Supabase
+        const { data: existingVote, error: checkError } = await supabase
+            .from('upvotes')
+            .select('*')
+            .eq('gallery_item_id', galleryItemId)
+            .eq('voter_ip', voterIpHash)
+            .maybeSingle();
 
-	// Check if this IP has already voted
-	const { count: existingVote, error: voteCheckError } = await supabase
-		.from('upvotes')
-		.select('*', { count: 'exact', head: true })
-		.eq('gallery_item_id', item.id)
-		.eq('ip_address', voterIp);
+        if (checkError) throw checkError;
+        if (existingVote) {
+            return item.upvotes || 0; // Already upvoted
+        }
 
-	if (voteCheckError) throw voteCheckError;
-	if (existingVote) throw new Error("Already voted");
+        // Add the upvote
+        const { error: upvoteError } = await supabase
+            .from('upvotes')
+            .insert({
+                gallery_item_id: galleryItemId,
+                voter_ip: voterIpHash,
+                voted_at: new Date(timestamp).toISOString()
+            });
 
+        if (upvoteError) throw upvoteError;
 
-	// Add the upvote with timestamp
-	const { error: upvoteError } = await supabase
-		.from('upvotes')
-		.insert({
-			gallery_item_id: item.id,
+        // Get the new upvote count
+        const { count: upvoteCount, error: countError } = await supabase
+            .from('upvotes')
+            .select('*', { count: 'exact', head: true})
+            .eq('gallery_item_id', galleryItemId);
 
-			ip_address: voterIp,
-			created_at: timestamp
-		});
+        if (countError) throw countError;
 
-	if (upvoteError) throw upvoteError;
+        // Update the gallery item with the new upvote count
+        const { error: updateError } = await supabase
+            .from('gallery_items')
+            .update({ upvotes: upvoteCount })
+            .eq('id', galleryItemId);
 
-	// Clear the gallery cache
-	galleryCache = null;
+        if (updateError) throw updateError;
 
-	// Return new upvote count
-	return await getUpvotes(sessionId, version);
+        // Clear the gallery cache
+        galleryCache = null;
+
+        return upvoteCount || 0;
+    } catch (error) {
+        console.error('Error in upvoteGalleryItem:', error);
+        throw error;
+    }
 }

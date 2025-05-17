@@ -20,6 +20,7 @@ const APP_SUGGESTIONS = APP_EXAMPLES.map((example) => example.label);
 export default function PromptView() {
 	const {
 		setStudioMode,
+		studioMode,
 		query,
 		setQuery,
 		setTriggerGeneration,
@@ -48,15 +49,50 @@ export default function PromptView() {
 		setShowDrawing(false);
 	};
 
-	const handleSuggestionClick = (suggestion: string) => () => {
-		const example = APP_EXAMPLES.find((ex) => ex.label === suggestion);
-		setQuery(example?.prompt || suggestion);
-		
-		resetStreamingState();
-		
-		setStudioMode(true);
-		setTriggerGeneration(true);
-	};
+	const handleSuggestionClick = async (suggestion: string) => {
+    console.log('=== Suggestion Click Handler Start ===');
+    console.log('Clicked suggestion:', suggestion);
+    
+    try {
+        // Find the example
+        const example = APP_EXAMPLES.find((ex) => ex.label === suggestion);
+        if (!example) {
+            console.error('No example found for suggestion:', suggestion);
+            return;
+        }
+        
+        const prompt = example.prompt;
+        console.log('Found prompt:', prompt);
+        
+        // Log current state before updates
+        console.log('Current state before updates - query:', query, 'studioMode:', studioMode);
+        
+        // Set the query
+        console.log('Setting query...');
+        setQuery(prompt);
+        
+        // Reset streaming state
+        console.log('Resetting streaming state...');
+        resetStreamingState();
+        
+        // Set studio mode
+        console.log('Setting studio mode to true...');
+        setStudioMode(true);
+        
+        // Wait for state updates to complete
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        console.log('State after updates - query:', query, 'studioMode:', studioMode);
+        
+        // Trigger generation
+        console.log('Triggering generation...');
+        setTriggerGeneration(true);
+        
+        console.log('=== Suggestion Click Handler Complete ===');
+    } catch (error) {
+        console.error('Error in handleSuggestionClick:', error);
+    }
+};
 
 	const handleTranscription = (transcription: string) => {
 		setQuery(transcription);
@@ -150,17 +186,27 @@ export default function PromptView() {
 				/>
 			)}
 			<div className="flex flex-wrap justify-center gap-3 items-center w-[90%] md:w-[60%] lg:w-[50%] pb-4 px-2">
-				{APP_SUGGESTIONS.map((suggestion) => (
-					<Button
-						disabled={MAINTENANCE_GENERATION}
-						key={suggestion}
-						variant="outline"
-						className="rounded-full text-xs whitespace-nowrap shrink-0"
-						onClick={handleSuggestionClick(suggestion)}
-					>
-						{suggestion}
-					</Button>
-				))}
+				{APP_SUGGESTIONS.map((suggestion) => {
+                console.log('Rendering suggestion button:', suggestion);
+                return (
+                    <Button
+                        key={suggestion}
+                        disabled={MAINTENANCE_GENERATION}
+                        variant="outline"
+                        className="rounded-full text-xs whitespace-nowrap shrink-0"
+                        onClick={(e) => {
+                            console.log('Button click event:', e);
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('Calling handleSuggestionClick with:', suggestion);
+                            handleSuggestionClick(suggestion);
+                        }}
+                        style={{ pointerEvents: MAINTENANCE_GENERATION ? 'none' : 'auto' }}
+                    >
+                        {suggestion}
+                    </Button>
+                );
+            })}
 			</div>
 			<div className="w-full px-4 mb-[100px]">
 				<Link href="/gallery">

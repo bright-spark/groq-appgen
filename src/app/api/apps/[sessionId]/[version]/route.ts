@@ -10,19 +10,35 @@ export async function GET(
 	const raw = request.nextUrl.searchParams.get("raw") === "true";
 
 	try {
-		const key = getStorageKey(sessionId, version);
+		// Get the IP for the storage key
+		const ip = request.headers.get("x-forwarded-for") || request.ip || "unknown";
+		const key = await getStorageKey(sessionId, version, ip);
+		
+		// Try to get the exact match first
 		const { value } = await getFromStorageWithRegex(key);
 
 		if (!value) {
-			return NextResponse.json({ error: "Not found" }, { status: 404 });
+			// If not found, try to find any version of this session
+			const sessionKey = await getStorageKey(sessionId, '*');
+			const { value: sessionValue } = await getFromStorageWithRegex(sessionKey);
+			
+			if (!sessionValue) {
+				return NextResponse.json({ error: "Not found" }, { status: 404 });
+			}
+			
+			const data = JSON.parse(sessionValue);
+			if (raw) {
+				return new NextResponse(data.html, {
+					headers: { "Content-Type": "text/html" },
+				});
+			}
+			return NextResponse.json(data);
 		}
 
 		const data = JSON.parse(value);
 		if (raw) {
 			return new NextResponse(data.html, {
-				headers: {
-					"Content-Type": "text/html",
-				},
+				headers: { "Content-Type": "text/html" },
 			});
 		}
 		return NextResponse.json(data);
@@ -53,7 +69,8 @@ export async function POST(
 			);
 		}
 
-		const key = getStorageKey(sessionId, version, ip);
+		// Generate the storage key
+		const key = await getStorageKey(sessionId, version, ip);
 
 		if (!verifyHtml(html, signature)) {
 			return NextResponse.json(
@@ -72,18 +89,24 @@ export async function POST(
 			createdAt: new Date().toISOString(),
 		};
 
-		await saveToStorage(key, JSON.stringify(data));
+		// Save with explicit sessionId and version instead of the generated key
+		const success = await saveToStorage({ sessionId, version }, JSON.stringify(data));
+		if (!success) {
+			throw new Error('Failed to save to storage');
+		}
 
 		if (!avoidGallery) {
 			let success = await addToGallery({ 
-				sessionId, 
+				session_id: sessionId, // Use snake_case for database fields
 				version, 
+				title: rest.title || 'Untitled',
+				description: rest.description || '',
 				signature,
-				...rest,
+				created_at: new Date().toISOString(), // Add created_at field
 			}, ip);
 			if(!success) {
 				return NextResponse.json(
-					{ error: "Failed to save app" },
+					{ error: "Failed to save app to gallery" },
 					{ status: 500 }
 				);
 			}
