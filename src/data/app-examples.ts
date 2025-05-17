@@ -21,6 +21,10 @@ export const APP_EXAMPLES: AppExample[] = [
     prompt: "Create an interactive quiz application with multiple-choice questions. Include a progress indicator, score tracking, and immediate feedback on answers. Make it visually engaging with appropriate spacing and transitions between questions.",
   },
   {
+    label: "Meme Maker",
+    prompt: "Develop a meme maker with a light minimal theme. Use light text for the input fields and other text. The meme maker should use https://picsum.photos/ for images. Load a random image when the meme maker opens. The meme maker should allow users to input text for the top and bottom of the meme. The meme maker should allow users to select meme orientation (e.g. horizontal, vertical, square). The meme maker should have a refresh button to load a new image. The meme maker should also allow users to share the meme. The meme maker should also allow users to save the meme.",
+  },
+  {
     label: "Snake Game",
     prompt: "Develop a classic snake game with arrow key controls. Include a score counter, game over screen, and restart button. The snake should grow when eating food, and the game should end if the snake hits the walls or itself. Make sure it is correct and make the JS implementation simple. The spawning algorithm should spawn within the bounds.",
   },
