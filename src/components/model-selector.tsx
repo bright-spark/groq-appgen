@@ -8,24 +8,35 @@ interface ModelSelectorProps {
   initialModel?: string;
 }
 
+type DropdownPosition = 'left' | 'right';
+
 const ModelSelector = ({ 
   options = MODEL_OPTIONS, 
   onChange, 
   initialModel 
 }: ModelSelectorProps) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(() => {
-    if (initialModel) return initialModel;
-    if (typeof window !== "undefined") {
-      const storedModel = localStorage.getItem("selectedModel");
-      if (storedModel && options.includes(storedModel)) {
-        return storedModel;
-      }
+  const [isClient, setIsClient] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition>('right');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Set initial model on client-side only
+  useEffect(() => {
+    setIsClient(true);
+    
+    const storedModel = localStorage.getItem("selectedModel");
+    let modelToSet = options[0];
+    
+    if (initialModel && options.includes(initialModel)) {
+      modelToSet = initialModel;
+    } else if (storedModel && options.includes(storedModel)) {
+      modelToSet = storedModel;
     }
-    return options[0];
-  });
-  const [dropdownPosition, setDropdownPosition] = useState("right");
-  const dropdownRef = useRef(null);
+    
+    setSelectedModel(modelToSet);
+    if (onChange) onChange(modelToSet);
+  }, [initialModel, options, onChange]);
 
   // Update selectedModel when initialModel changes externally
   useEffect(() => {
@@ -54,9 +65,9 @@ const ModelSelector = ({
       const viewportWidth = window.innerWidth;
       
       if (rect.right + 300 > viewportWidth) {
-        setDropdownPosition("left");
+        setDropdownPosition('left');
       } else {
-        setDropdownPosition("right");
+        setDropdownPosition('right');
       }
     }
     setIsOpen(!isOpen);
@@ -64,8 +75,9 @@ const ModelSelector = ({
 
   // Close dropdown on outside click
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && event.target instanceof Node && 
+          !dropdownRef.current.contains(event.target)) {
         setIsOpen(false);
       }
     };
@@ -74,6 +86,16 @@ const ModelSelector = ({
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
+
+  // Don't render anything during SSR to prevent hydration mismatch
+  if (!isClient) {
+    return (
+      <div className="flex items-center justify-end gap-2 rounded-lg p-2 w-full md:w-auto">
+        <span className="text-black dark:text-white text-right">{initialModel || options[0]}</span>
+        <ChevronDown className="w-5 h-5 text-black dark:text-white" />
+      </div>
+    );
+  }
 
   return (
     <div ref={dropdownRef} className="relative w-full md:w-auto">

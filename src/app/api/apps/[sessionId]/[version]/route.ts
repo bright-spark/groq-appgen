@@ -97,18 +97,15 @@ export async function POST(
 		}
 
 		// Save with explicit sessionId and version
-		console.log('Attempting to save to storage...');
 		try {
 			const success = await saveToStorage({ sessionId, version }, JSON.stringify(storageData));
 			if (!success) {
-				console.error('Failed to save to storage: saveToStorage returned false');
+				console.error('Failed to save to storage');
 				throw new Error('Failed to save to storage');
 			}
-			console.log('Successfully saved to storage');
 
 			try {
 				if (!avoidGallery) {
-					console.log('Attempting to add to gallery...');
 					await addToGallery({ 
 						session_id: sessionId,
 						version, 
@@ -119,7 +116,6 @@ export async function POST(
 					}, ip);
 				}
 
-				console.log('Sending success response');
 				return new Response(JSON.stringify({ 
 					success: true,
 					sessionId,
@@ -130,10 +126,7 @@ export async function POST(
 				});
 
 			} catch (galleryError) {
-				console.error('Error adding to gallery:', {
-					error: galleryError instanceof Error ? galleryError.message : 'Unknown error',
-					stack: galleryError instanceof Error ? galleryError.stack : undefined
-				});
+				console.error('Gallery error:', galleryError);
 				// Still return success since the main save was successful
 				return new Response(JSON.stringify({ 
 					success: true,
@@ -147,17 +140,7 @@ export async function POST(
 			}
 
 		} catch (saveError) {
-			console.error('Error in saveToStorage:', {
-				error: saveError instanceof Error ? saveError.message : 'Unknown error',
-				stack: saveError instanceof Error ? saveError.stack : undefined,
-				sessionId,
-				version,
-				storageData: {
-					...storageData,
-					html: storageData.html ? `${storageData.html.substring(0, 100)}...` : 'empty'
-				}
-			});
-			
+			console.error('Save error:', saveError);
 			return new Response(JSON.stringify({ 
 				success: false,
 				error: 'Failed to save to storage',

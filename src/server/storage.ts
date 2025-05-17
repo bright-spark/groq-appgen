@@ -163,17 +163,13 @@ export async function getGalleryKey(timestamp: number, randomHash: string, ip: s
 
 // These functions are stubs for backward compatibility
 export async function saveToStorage(key: string | { sessionId: string; version: string } | Record<string, any>, value: string): Promise<boolean> {
-  console.log('saveToStorage called with key:', JSON.stringify(key, null, 2));
-  console.log('saveToStorage value type:', typeof value);
-  console.log('saveToStorage value length:', value?.length || 0);
+  // Parse the value to validate it
   if (value && typeof value === 'string') {
     try {
-      const parsed = JSON.parse(value);
-      console.log('Parsed value keys:', Object.keys(parsed));
-      console.log('Has html:', !!parsed.html);
-      console.log('Has signature:', !!parsed.signature);
+      JSON.parse(value);
     } catch (e) {
-      console.log('Value is not valid JSON');
+      console.error('Invalid JSON in saveToStorage');
+      return false;
     }
   }
 
@@ -225,19 +221,9 @@ export async function saveToStorage(key: string | { sessionId: string; version: 
       return false;
     }
 
-    // Log the data we're about to save
-    console.log('Processing data for storage:', {
-      sessionId,
-      version,
-      hasHtml: !!data.html,
-      hasSignature: !!data.signature,
-      hasTitle: !!data.title,
-      dataKeys: Object.keys(data)
-    });
-
     // Ensure required fields are present
     if (!data.html) {
-      console.error('Missing required html field in saveToStorage');
+      console.error('Missing required html field');
       return false;
     }
 
@@ -255,45 +241,25 @@ export async function saveToStorage(key: string | { sessionId: string; version: 
 
     try {
       // Check if item exists
-      console.log('Checking for existing item...');
       const existingItem = await getGalleryItem(sessionId, version);
       
       if (existingItem) {
-        console.log('Updating existing item...', { sessionId, version });
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('gallery_items')
           .update(galleryItem)
           .eq('session_id', sessionId)
-          .eq('version', version)
-          .select();
+          .eq('version', version);
         
-        console.log('Update result:', { data, error });
-        if (error) {
-          console.error('Error updating item:', error);
-          throw error;
-        }
+        if (error) throw error;
       } else {
-        console.log('Creating new item...', { sessionId, version });
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('gallery_items')
-          .insert([galleryItem])
-          .select();
+          .insert([galleryItem]);
         
-        console.log('Insert result:', { data, error });
-        if (error) {
-          console.error('Error creating item:', error);
-          throw error;
-        }
+        if (error) throw error;
       }
     } catch (dbError) {
-      console.error('Database operation failed:', {
-        error: dbError instanceof Error ? dbError.message : 'Unknown error',
-        stack: dbError instanceof Error ? dbError.stack : undefined,
-        galleryItem: {
-          ...galleryItem,
-          html: galleryItem.html ? `${galleryItem.html.substring(0, 100)}...` : 'empty'
-        }
-      });
+      console.error('Database operation failed:', dbError);
       throw dbError;
     }
 
